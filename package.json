@@ -1,19 +1,19 @@
 {
-  "name": "NodeGame",
+  "name": "chthonios-authentication",
   "version": "0.0.1",
-  "main": "./server/GameServer.js",
+  "main": "./server/authentication.js",
   "author": {
     "name": "jakimfett",
-    "email": "jakimfett@gmail.com"
+    "email": "jakimfett@chthonios.com"
   },
   "keywords": [],
   "license": "SEE LICENSE IN LICENSE.md",
   "repository": {
     "type": "git",
-    "url": "git@github.com:jakimfett/nodegame.git"
+    "url": "git@github.com:chthonios-game/chthonios-authentication.git"
   },
   "bugs": {
-    "url": "https://github.com/jakimfett/nodegame/issues"
+    "url": "https://github.com/chthonios-game/chthonios-authentication/issues"
   },
   "dependencies": {
     "mkdirp": "^0.5.1",
