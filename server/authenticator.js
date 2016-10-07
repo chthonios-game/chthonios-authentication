@@ -1,5 +1,6 @@
 var http = require('http');
 var querystring = require('querystring');
+var config = reqire("./config.js");
 
 var decoratedCallback = function(fn, fncontext) {
 	return function() {
@@ -24,27 +25,30 @@ function Authenticator(properties) {
 	this.tokens = [];
 	this.profiles = [];
 	this.server = null;
-	this.port = properties.port;
 
 	this.toString = function() {
 		return "AuthenticatorService { port: " + this.port + " }";
 	}
 
 	this.init = function() {
-		this.server = http.createServer(decoratedCallback(this.handleRequest, this));
-		this.server.listen(this.port, decoratedCallback(function() {
-			console.log(this.toString(), "listening: port", this.port);
-		}, this));
+		this.server = http.createServer(decoratedCallback(this.handleRequest,
+				this));
+		this.server.listen(config.authenticator.port, decoratedCallback(
+				function() {
+					console.log(this.toString(), "listening: port",
+							config.authenticator.port);
+				}, this));
 	}
 
 	this.respond = function(response, code, payload) {
 		response.writeHead(code, {
 			'Content-Type' : 'application/json',
-			'Access-Control-Allow-Origin' : '*'
+			'Access-Control-Allow-Origin' : config.authenticator.security.acao
 		});
 		payload.status = code;
 		response.end(JSON.stringify(payload));
-		if (payload != undefined && payload != null && payload.message != undefined)
+		if (payload != undefined && payload != null
+				&& payload.message != undefined)
 			console.log("server response", code, payload.message)
 		else
 			console.log("server response", code);
@@ -63,7 +67,7 @@ function Authenticator(properties) {
 				});
 				return;
 			}
-			
+
 			console.log("object request", fullpath);
 
 			var payload = "";
@@ -76,8 +80,11 @@ function Authenticator(properties) {
 				console.log("object body", data);
 				var command = fullpath[1];
 				if (command == "authenticate") {
-					if (data.token == undefined || data.token == null || data.username == undefined || data.username == null
-							|| data.password == undefined || data.password == null) {
+					if (data.token == undefined || data.token == null
+							|| data.username == undefined
+							|| data.username == null
+							|| data.password == undefined
+							|| data.password == null) {
 						this.respond(response, 498, {
 							message : 'Invalid request'
 						});
@@ -85,7 +92,8 @@ function Authenticator(properties) {
 					}
 					console.log("authentication request", data.token);
 
-					if (this.profiles[data.username] == undefined || this.profiles[data.username] == null) {
+					if (this.profiles[data.username] == undefined
+							|| this.profiles[data.username] == null) {
 						this.profiles[data.username] = {
 							username : data.username,
 							password : data.password
@@ -93,7 +101,8 @@ function Authenticator(properties) {
 					}
 
 					var profile = this.profiles[data.username];
-					if (data.username != profile.username || data.password != profile.password) {
+					if (data.username != profile.username
+							|| data.password != profile.password) {
 						this.respond(response, 498, {
 							message : 'Incorrect username + password'
 						});
@@ -139,7 +148,5 @@ function Authenticator(properties) {
 	}
 }
 
-var server = new Authenticator({
-	port : 8081
-});
+var server = new Authenticator();
 server.init();
