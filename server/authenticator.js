@@ -1,6 +1,7 @@
 var http = require('http');
+var crypto = require('crypto');
 var querystring = require('querystring');
-var config = reqire("./config.js");
+var config = require("./config.js").config;
 
 var decoratedCallback = function(fn, fncontext) {
 	return function() {
@@ -24,6 +25,7 @@ function Authenticator(properties) {
 
 	this.tokens = [];
 	this.profiles = [];
+	this.servers = [];
 	this.server = null;
 
 	this.toString = function() {
@@ -31,13 +33,11 @@ function Authenticator(properties) {
 	}
 
 	this.init = function() {
-		this.server = http.createServer(decoratedCallback(this.handleRequest,
-				this));
-		this.server.listen(config.authenticator.port, decoratedCallback(
-				function() {
-					console.log(this.toString(), "listening: port",
-							config.authenticator.port);
-				}, this));
+		this.port = config.authenticator.port;
+		this.server = http.createServer(decoratedCallback(this.handleRequest, this));
+		this.server.listen(this.port, decoratedCallback(function() {
+			console.log(this.toString(), "listening: port", this.port);
+		}, this));
 	}
 
 	this.respond = function(response, code, payload) {
@@ -47,11 +47,22 @@ function Authenticator(properties) {
 		});
 		payload.status = code;
 		response.end(JSON.stringify(payload));
-		if (payload != undefined && payload != null
-				&& payload.message != undefined)
+		if (payload != undefined && payload != null && payload.message != undefined)
 			console.log("server response", code, payload.message)
 		else
 			console.log("server response", code);
+	}
+
+	this.checkHash = function(user, keystr) {
+		var ch = keystr.split(":");
+
+		if (ch[0] != "plain") {
+			var hasher = crypto.createHash(ch[0]);
+			hasher.update(user);
+			user = hasher.digest("hex");
+		}
+
+		return (ch[1] == user);
 	}
 
 	this.handleRequest = function(request, response) {
@@ -60,16 +71,21 @@ function Authenticator(properties) {
 			resource = resource.substring(1);
 		var fullpath = resource.split("/");
 
-		if (fullpath[0] == "v1" && fullpath.length == 2) {
+		if (fullpath[0] == "v1") {
+			this.respond(response, 400, {
+				message : 'Schema v1 has been deprecated'
+			});
+			return;
+		}
+
+		if (fullpath[0] == "v2" && fullpath.length >= 2) {
 			if (request.method != "POST") {
 				this.respond(response, 400, {
 					message : 'Unsupported v1 request method'
 				});
 				return;
 			}
-
 			console.log("object request", fullpath);
-
 			var payload = "";
 			request.on("data", decoratedCallback(function(chunk) {
 				payload += chunk.toString();
@@ -78,13 +94,93 @@ function Authenticator(properties) {
 			request.on("end", decoratedCallback(function() {
 				var data = querystring.parse(payload);
 				console.log("object body", data);
+
+				if (config.authenticator.security.accessPassword !== null) {
+					if (!this.checkHash(data.secret, config.authenticator.security.accessPassword))
+						return this.respond(response, 403, {
+							message : 'Secret incorrect'
+						});
+				}
+
 				var command = fullpath[1];
-				if (command == "authenticate") {
-					if (data.token == undefined || data.token == null
-							|| data.username == undefined
-							|| data.username == null
-							|| data.password == undefined
-							|| data.password == null) {
+
+				if (command == "ping") {
+					this.respond(response, 200, {
+						servername : config.authenticator.servername,
+						serverport : config.authenticator.port
+					});
+				} else if (command == "heartbeat") {
+					if (config.authenticator.security.announcePassword !== null) {
+						if (!this.checkHash(data.announceSecret, config.authenticator.security.announcePassword))
+							return this.respond(response, 403, {
+								message : 'Announce secret incorrect'
+							});
+					}
+					if (data.token === undefined || data.token === null)
+						return this.respond(response, 498, {
+							message : 'Token required'
+						});
+					if (data.servername === undefined || data.servername === null)
+						return this.respond(response, 498, {
+							message : 'Server name required'
+						});
+					if (data.playercount === undefined || data.playercount === null)
+						return this.respond(response, 498, {
+							message : 'Player count required'
+						});
+
+					if (data.instance !== undefined && data.instance !== null) {
+						var isvr = this.servers[parseInt(data.instance)];
+						if (isvr === null)
+							return this.respond(response, 498, {
+								message : 'Server not registered'
+							});
+						if (isvr.token !== data.token)
+							return this.respond(response, 498, {
+								message : 'Invalid registration token'
+							});
+						isvr.servername = data.servername;
+						isvr.playercount = data.playercount;
+						isvr.serveraddr = data.serveraddr;
+						isvr.serverport = data.serverport;
+						isvr.lastmodify = new Date().getTime();
+						this.respond(response, 200, {
+							instance : isvr.instance,
+							created : false,
+							updated : true
+						});
+					} else {
+						var svrdef = {
+							token : data.token,
+							servername : data.servername,
+							playercount : data.playercount,
+							serveraddr : data.serveraddr,
+							serverport : data.serverport,
+							lastmodify : new Date().getTime()
+						};
+						this.servers.push(svrdef);
+						svrdef.instance = this.servers.length - 1;
+						this.respond(response, 200, {
+							instance : svrdef.instance,
+							created : true,
+							update : false
+						});
+					}
+				} else if (command == "realms") {
+					var realmlist = [];
+					for (var i = 0; i < this.servers.length; i++) {
+						var isvr = this.servers[i];
+						if (isvr == null)
+							continue;
+						realmlist.push([ isvr.servername, isvr.playercount, isvr.serveraddr, isvr.serverport ]);
+					}
+					this.respond(response, 200, {
+						live : realmlist.length,
+						realms : realmlist
+					});
+				} else if (command == "authenticate") {
+					if (data.token == undefined || data.token == null || data.username == undefined || data.username == null
+							|| data.password == undefined || data.password == null) {
 						this.respond(response, 498, {
 							message : 'Invalid request'
 						});
@@ -92,8 +188,7 @@ function Authenticator(properties) {
 					}
 					console.log("authentication request", data.token);
 
-					if (this.profiles[data.username] == undefined
-							|| this.profiles[data.username] == null) {
+					if (this.profiles[data.username] == undefined || this.profiles[data.username] == null) {
 						this.profiles[data.username] = {
 							username : data.username,
 							password : data.password
@@ -101,8 +196,7 @@ function Authenticator(properties) {
 					}
 
 					var profile = this.profiles[data.username];
-					if (data.username != profile.username
-							|| data.password != profile.password) {
+					if (data.username != profile.username || data.password != profile.password) {
 						this.respond(response, 498, {
 							message : 'Incorrect username + password'
 						});
